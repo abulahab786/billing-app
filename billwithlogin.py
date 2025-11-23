@@ -571,9 +571,9 @@ def billing_page():
                     st.success("✅ Bill saved successfully!")
                     #PDF GENERATE=======================================================
                     
-                    file1=open("bills/"+str(bill_no)+".txt",'w')
-                    file1.write(bill_text)
-                    file1.close()
+                    #file1=open("bills/"+str(bill_no)+".txt",'w')
+                    #file1.write(bill_text)
+                    #file1.close()
 
                     
                     @st.dialog('Bill Test')
