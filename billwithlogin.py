@@ -699,23 +699,28 @@ def inventory_page():
     
     #item=[]
     if st.button("import Item Data",width=300):
-        df=pd.read_csv(upload_csv)
-        df.columns=df.columns.str.strip()
-        
-        #head=next(df)
-        data=[]
-        
-        #data.append(x)
-        #print(x)
-        conn=sqlite3.connect("billing_app.db")
-        cur=conn.cursor()
-        df.to_sql("itemadd",conn, if_exists="replace",index=0)
-        conn.commit()
-        conn.close()
-        st.success("Data Imported Successfully")
+        if upload_csv==upload_csv:
+
+            df=pd.read_csv(upload_csv)
+            df.columns=df.columns.str.strip()
+            
+            #head=next(df)
+            data=[]
+            
+            #data.append(x)
+            #print(x)
+            conn=sqlite3.connect("billing_app.db")
+            cur=conn.cursor()
+            df.to_sql("itemadd",conn, if_exists="replace",index=0)
+            conn.commit()
+            conn.close()
+            st.success("Data Imported Successfully")
+        else:
+            st.info("Please Upload the CSV File")    
           
         
     itemsearch=st.text_input("",placeholder="Type the Item Code")
+    caminput=st.camera_input("Cam Input")
     if st.button("Search",width=200):
         if itemsearch:
                 i = search_item(itemsearch)
@@ -762,46 +767,51 @@ def inventory_page():
                     itemd()
                 else:
                     @st.dialog("Information")
-                    def error():
+                    def itemaddtab():
                         st.error("Item Not Found")
                         st.info("   Need to Add from \n \n➕ Add New Item Tab Below")
-                    error()
+                        
                     # Add new item
-                    with st.expander("➕ Add New Item Tab"):
-                        with st.form("add_item_form"):
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                new_code = st.number_input("Item Code", min_value=1000)
-                                new_name = st.text_input("Item Name")
-                                new_rate = st.number_input("Rate", min_value=0.0, step=0.01)
-                                new_gstin = st.number_input("GST %", min_value=0.0, max_value=100.0, value=0.0)
-                                new_discount = st.number_input("Discount %", min_value=0.0, max_value=100.0, value=0.0)
-                                new_soh = st.number_input("Stock on Hand", min_value=0, value=0)
-                            with col2:
-                                cost = st.number_input("Purchase Cost", min_value=0.0, step=0.01)
-                                expiry = st.date_input("Select Expiry Date")
-                                storecode = st.number_input("Store Code", min_value=0, value=7001)
-                                storename = st.selectbox("Store Name", ("Alam Cellular Relling","Alam Cellular Siliguri"))
-                                vendorname = st.text_input("Vendor Name")
-                                vendorgst=st.text_input("Vendor GSTNO")
+                        with st.expander("➕ Add New Item Tab"):
+                            with st.form("add_item_form"):
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    new_code = st.text_input("Item Code",value=(itemsearch))
+                                    new_name = st.text_input("Item Name")
+                                    new_rate = st.number_input("Rate", min_value=0.0, step=0.01)
+                                    new_gstin = st.number_input("GST %", min_value=0.0, max_value=100.0, value=0.0)
+                                    new_discount = st.number_input("Discount %", min_value=0.0, max_value=100.0, value=0.0)
+                                    new_soh = st.number_input("Stock on Hand", min_value=0, value=0)
+                                    cost = st.number_input("Purchase Cost", min_value=0.0, step=0.01)
+                                    catag = st.text_input("Catagory")
+                                with col2:
+                                    scatag = st.text_input("Sub-Catagory")
+                                    brand = st.text_input("Brand")
+                                    expiry = st.date_input("Select Expiry Date")
+                                    storecode = st.number_input("Store Code", min_value=0, value=7001)
+                                    storename = st.selectbox("Store Name", ("Alam Cellular Relling","Alam Cellular Siliguri"))
+                                    vendorname = st.text_input("Vendor Name")
+                                    vendorgst=st.text_input("Vendor GSTNO")
+                                    
                                 
-                            
-                            if st.form_submit_button("Add Item"):
-                                conn = sqlite3.connect('billing_app.db')
-                                cur = conn.cursor()
-                                try:
-                                    cur.execute("""
-                                        INSERT INTO itemadd (item_code, item_name, qty, rate, gstin, discount, soh,cost,expiry_date,store_code,store_name,vendor_name,vendor_gst)
-                                        VALUES (?, ?, 1, ?, ?, ?, ?,?,?,?,?,?,?)
-                                    """, (new_code, new_name, new_rate, new_gstin, new_discount, new_soh,cost,expiry,storecode,storename,vendorname,vendorgst))
-                                    conn.commit()
-                                    st.success("✅ Item added successfully!")
-                                    #st.rerun()
-                                except sqlite3.IntegrityError:
-                                    st.error("❌ Item code already exists!")
-                                finally:
-                                    conn.close()
-
+                                if st.form_submit_button("Add Item"):
+                                    conn = sqlite3.connect('billing_app.db')
+                                    cur = conn.cursor()
+                                    try:
+                                        cur.execute("""
+                                            INSERT INTO itemadd (item_code, item_name, qty, rate, gstin, discount, soh,cost,catagory,sub_catagory,brand,expiry_date,store_code,store_name,vendor_name,vendor_gst)
+                                            VALUES (?, ?, 1, ?, ?, ?, ?,?,?,?,?,?,?,?,?,?)
+                                        """, (new_code, new_name, new_rate, new_gstin, new_discount, new_soh,cost,catag,scatag,brand,expiry,storecode,storename,vendorname,vendorgst))
+                                        conn.commit()
+                                        st.success("✅ Item added successfully!")
+                                        #st.rerun()
+                                    except sqlite3.IntegrityError:
+                                        st.error("❌ Item code already exists!")
+                                    finally:
+                                        conn.close()
+                                    
+                    itemaddtab()
+                    
     # Display all items
     items_df = get_all_items()
     
