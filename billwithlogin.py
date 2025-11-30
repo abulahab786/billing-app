@@ -4,6 +4,7 @@ import pandas as pd
 import datetime as dt
 import random
 import hashlib
+from streamlit_searchbox import st_searchbox
 #from fpdf import FPDF
 
 # Page configuration
@@ -194,6 +195,26 @@ def search_item(search_term):
     conn.close()
     return result
 
+def search_items(searchterm: str):
+    """Search function for streamlit-searchbox"""
+    if not searchterm:
+        return []
+    
+    conn = sqlite3.connect('billing_app.db')
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT item_name FROM itemadd 
+        WHERE item_name LIKE ? 
+        ORDER BY item_name 
+        LIMIT 20
+    ''', (f'%{searchterm}%',))
+    
+    results = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    
+    return results
+
 def get_all_items():
     """Get all items from database"""
     conn = sqlite3.connect('billing_app.db')
@@ -350,6 +371,11 @@ def main_app():
     elif page == "👥 User Management":
         user_management_page()
 
+def item_reset():
+    #st.session_state.quantity=1
+    st.session_state.item_search=""
+    st.session_state.selected_item=[]
+
 def billing_page():
     # Customer Information
     col1, col2 = st.columns([2,1])
@@ -384,19 +410,28 @@ def billing_page():
     
     st.markdown("---")
     
-    # Item Search
+   
     st.subheader("🔍 Add Items to Cart")
-    search_col1, search_col2, search_col3 = st.columns([2, 1, 1])
-    
-    with search_col1:
-        item_search = st.text_input("Enter Item Code or Name", placeholder="Type item code or name...")
+    search_col1, search_col2 = st.columns([3, 1])
+   
+    with search_col1:        
+        item_search = st.text_input("",placeholder="Type item code or EAN No")
+        # Item Search
+        selected_item = st_searchbox(
+        search_items,
+        key="item_searchbox",
+        placeholder="Search items...with Names",
+        #label="🔍 Search for an item with Names",
+        clear_on_submit=False,
+        #clearable=False
+        )
     
     with search_col2:
         quantity = st.number_input("Quantity", min_value=1, value=1)
     
-    with search_col3:
-        st.write("")
-        st.write("")
+    with search_col2:
+        #st.write("")
+        #st.write("")
         if st.button("➕ Add to Cart", width='stretch'):
             if item_search:
                 i = search_item(item_search)
@@ -436,12 +471,59 @@ def billing_page():
                         'vendor_gst':i[15]
                     }
                     st.session_state.cart_items.append(cart_item)
-                    st.success(f"✅ Added {item_name} to cart!")                    
+                    st.success(f"✅ Added {item_name} to cart!") 
+                    item_reset()
+                    
+                    #st.session_state.item_search=['']                                   
                     st.rerun()
-                    st.session_state.item_search.clear()
+                  
                 else:
                     st.error("❌ Item not found!")
     
+            elif selected_item:
+                i = search_item(selected_item)
+                #item=(i[0],i[1],i[2],i[3],i[4],i[5],i[6])
+                if i:
+                    item_code, item_name, _, rate, gstin, discount, soh,cost,catagory,sub_catagory,brand = (i[0],i[1],i[2],i[3],i[4],i[5],i[6],i[7],i[8],i[9],i[10])
+                    
+                    # Calculate amounts
+                    total_rate = rate * quantity
+                    dis_amount = total_rate * discount / 100
+                    amount = total_rate - dis_amount
+                    gst_amount = amount * gstin / 100
+                    gross_amount = amount
+                    net_amount = amount-gst_amount
+                    costnew=(i[7]*quantity)
+                    
+                    # Add to cart
+                    cart_item = {
+                        'item_code': item_code,
+                        'item_name': item_name,
+                        'qty': quantity,
+                        'rate': rate,
+                        'gstin':i[4],
+                        'gst_amount':gst_amount,
+                        'discount': discount,
+                        'dis_amount': dis_amount,
+                        'gross_amount': gross_amount,
+                        'amount': net_amount,
+                        'cost':costnew,
+                        'catagory':i[8],
+                        'sub_catagory':i[9],
+                        'brand':i[10],
+                        'expiry_date':i[11],
+                        'store_code':i[12],
+                        'store_name':i[13],
+                        'vendor_name':i[14],
+                        'vendor_gst':i[15]
+                    }
+                    st.session_state.cart_items.append(cart_item)
+                    st.success(f"✅ Added {item_name} to cart!") 
+                    #st.session_state.item_search == ['']  
+                    item_reset()                                 
+                    st.rerun()                    
+                else:
+                    st.error("❌ Item not found!")
     # Display Cart
     st.markdown("---")
     st.subheader("🛒 Shopping Cart")
@@ -479,7 +561,7 @@ def billing_page():
         with col3:
             st.metric("Discount", f"₹{total_discount:.2f}")
         with col4:
-            st.markdown(f'<div class="total-box">₹{total_amount:.2f}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="total-box"> ₹{total_amount:.2f}</div>', unsafe_allow_html=True)
         
         # Action buttons
         btn_col1, btn_col2, btn_col3 = st.columns(3)
@@ -571,9 +653,9 @@ def billing_page():
                     st.success("✅ Bill saved successfully!")
                     #PDF GENERATE=======================================================
                     
-                    #file1=open("bills/"+str(bill_no)+".txt",'w')
-                    #file1.write(bill_text)
-                    #file1.close()
+                    file1=open("bills/"+str(bill_no)+".txt",'w')
+                    file1.write(bill_text)
+                    file1.close()
 
                     
                     @st.dialog('Bill Test')
