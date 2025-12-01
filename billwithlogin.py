@@ -720,8 +720,8 @@ def inventory_page():
           
         
     itemsearch=st.text_input("",placeholder="Type the Item Code")
-    if st.button("Take Item from Camera"):
-        caminput=st.camera_input("Cam Input")
+    #if st.button("Take Item from Camera"):
+        #caminput=st.camera_input("Cam Input")
     if st.button("Search",width=200):
         if itemsearch:
                 i = search_item(itemsearch)
