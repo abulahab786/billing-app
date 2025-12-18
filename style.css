@@ -1,10 +1,10 @@
 .main-header {
         font-size: 2.0rem;
-        color: #228B22;
+        color: rgb(0,60,20);
         text-align: center;
         font-weight: bold;
         padding: 1rem;
-        background: linear-gradient(90deg, #90EE90 0%, #228B22 100%);
+        background: linear-gradient(90deg,#b9d616 0%, #228B22 100%);
         border-radius: 10px;
         margin-bottom: 2rem;
     }
@@ -17,14 +17,17 @@
     }
     .stButton>button {
         width: 100%;
-        background-color: #228B22;
-        color: white;
+        background-color: rgb(0,60,20);
+        /*background: linear-gradient(90deg,#b9d616 0%, #228B22 100%);*/
+        color:  white;
         font-weight: bold;
         border-radius: 8px;
         padding: 0.5rem 1rem;
-        margin-bottom: 4px;
-        
-    }
+        margin-bottom: 4px;     
+            }
+    .stButton>button:hover {
+            background: linear-gradient(90deg,#899c19 0%, #228B22 100%); /* New color on hover (blue) */
+    }        
     .total-box {
         background-color: #073603;
         color: white;

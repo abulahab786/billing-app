@@ -2,3 +2,7 @@ streamlit
 streamlit_searchbox
 pandas
 datetime
+qrcode
+Pillow
+fpdf
+
