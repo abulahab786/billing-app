@@ -1,5 +1,4 @@
 import streamlit as st
-import sqlite3
 import pandas as pd
 import datetime as dt
 import hashlib
@@ -12,6 +11,8 @@ try:
 except Exception:
     FPDF_AVAILABLE = False
 from zoneinfo import ZoneInfo
+# Import MongoDB utilities
+import mongo_db as db_ops
 
 # India timezone
 INDIA_TZ = ZoneInfo("Asia/Kolkata")
@@ -28,13 +29,6 @@ st.set_page_config(
 )
 
 # Custom CSS for styling
-#st.markdown("""
-#<style>
-    
-#</style>
-#""", unsafe_allow_html=True)
-
-#===========Upload CSS File=================
 with open("style.css") as f:
     st.markdown(f"<style>{f.read()}</style>",unsafe_allow_html=True)
 
@@ -48,14 +42,8 @@ if 'user_role' not in st.session_state:
 if 'cart_items' not in st.session_state:
     st.session_state.cart_items = []
 if 'invoice_no' not in st.session_state:
-    
-    conn = sqlite3.connect('billing_app.db')
-    cur = conn.cursor()
-    cur.execute("SELECT MAX(rowid),* FROM invoicedata")
-    eg = cur.fetchmany()
-    print(eg)
-    for v in eg:    
-        st.session_state.invoice_no=(v[6]+1)
+    invoice_no = db_ops.get_max_invoice_no()
+    st.session_state.invoice_no = invoice_no
 if 'customer_name' not in st.session_state:
     st.session_state.customer_name = ""
 if 'customer_mobile' not in st.session_state:
@@ -65,220 +53,111 @@ if 'payment_mode' not in st.session_state:
 
 # Database functions
 def init_database():
-    """Initialize SQLite database with required tables"""
-    conn = sqlite3.connect('billing_app.db')
-    cur = conn.cursor()
-    
-    # Create users table
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS user_data (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL,
-            role TEXT DEFAULT 'cashier'
-        )
-    """)
-    
-    # Check if default users exist, if not create them
-    cur.execute("SELECT COUNT(*) FROM user_data")
-    if cur.fetchone()[0] == 0:
-        # Hash passwords
-        admin_pass = hashlib.sha256("admin123".encode()).hexdigest()
-        cashier_pass = hashlib.sha256("cashier123".encode()).hexdigest()
-        manager_pass = hashlib.sha256("manager123".encode()).hexdigest()
-        
-        default_users = [
-            ("admin", admin_pass, "admin"),
-            ("cashier", cashier_pass, "cashier"),
-            ("manager", manager_pass, "manager")
-        ]
-        cur.executemany("INSERT INTO user_data (username, password, role) VALUES (?, ?, ?)", default_users)
-    
-    # Create items table
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS itemadd (
-            item_code INTEGER PRIMARY KEY,
-            item_name TEXT,
-            qty INTEGER DEFAULT 1,
-            rate REAL,
-            gstin REAL DEFAULT 0,
-            discount REAL DEFAULT 0,
-            soh INTEGER DEFAULT 0,
-            cost INTEGER,
-            catagory TEXT,
-            sub_catagory TEXT,
-            brand TEXT,
-            expiry_date TEXT,
-            store_code INTEGER,
-            store_name TEXT,
-            vendor_name TEXT,
-            vendor_gst TEXT
-        )
-    """)
-    
-    # Create customer table
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS billdata (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT,
-            time TEXT,
-            bill_no TEXT,
-            amount REAL,
-            cust_name TEXT,
-            cust_mobile TEXT,
-            payment_mode TEXT,
-            cashier TEXT
-        )
-    """)
-    
-    # Create sales details table
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS saledetails (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT,
-            time TEXT,
-            bill_no TEXT,
-            item_code INTEGER,
-            item_name TEXT,
-            qty INTEGER,
-            rate REAL,
-            gstin REAL,
-            gst_amount REAL,
-            discount REAL,
-            dis_amount REAL,
-            gross_amount REAL,
-            net_amount REAL,
-            soh INTEGER,
-            cost INTEGER,
-            catagory TEXT,
-            sub_catagory TEXT,
-            brand TEXT,
-            expiry_date TEXT,
-            store_code INTEGER,
-            store_name TEXT,
-            vendor_name TEXT,
-            vendor_gst TEXT
-        )
-    """)
-    
-    # Insert sample items if table is empty
-    cur.execute("SELECT COUNT(*) FROM itemadd")
-    if cur.fetchone()[0] == 0:
-        sample_items = [
-            (1001, "White Bread", 1, 150, 5, 0, 50,140,"Bakery","Bread","Raja","20-6-2026",7001,"Alam Megastore Relling","Jupiter Enterprise","CDFX65567FCC575Z"),
-            (1002, "Brown Brade", 1, 100, 5, 0, 100,90,"Bakery","Bread","Raja","20-6-2026",7001,"Alam Megastore Relling","Jupiter Enterprise","CDFX65567FCC575Z"),
-            #(1003, "Phone Case", 1, 500, 12, 5, 200),
-            #(1004, "Screen Protector", 1, 300, 12, 0, 150),
-            #(1005, "Power Bank 10000mAh", 1, 1500, 18, 8, 75),
-            #(1006, "USB Cable Type-C", 1, 250, 12, 5, 300),
-            #(1007, "Wall Charger Fast", 1, 800, 18, 10, 120),
-            #(1008, "Bluetooth Speaker", 1, 3500, 18, 15, 60)
-        ]
-        cur.executemany("""
-            INSERT INTO itemadd (item_code, item_name, qty, rate, gstin, discount, soh,cost,catagory,sub_catagory,brand,expiry_date,store_code,store_name,vendor_name,vendor_gst)
-            VALUES (?, ?, ?, ?, ?, ?, ?,?,?,?,?,?,?,?,?,?)
-        """, sample_items)
-    
-    conn.commit()
-    conn.close()
+    """Initialize MongoDB database with required collections"""
+    db_ops.init_database()
 
 def verify_login(username, password):
     """Verify user credentials"""
-    conn = sqlite3.connect('billing_app.db')
-    cur = conn.cursor()
-    
     hashed_password = hashlib.sha256(password.encode()).hexdigest()
-    cur.execute("SELECT username, role FROM user_data WHERE username = ? AND password = ?", 
-                (username, hashed_password))
-    result = cur.fetchone()
-    conn.close()
+    result = db_ops.verify_login(username, hashed_password)
     
-    return result
+    if result:
+        return (result.get('username'), result.get('role'))
+    return None
 
 def search_item(search_term):
     """Search for item by code or name"""
-    conn = sqlite3.connect('billing_app.db')
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT * FROM itemadd 
-        WHERE item_code = ? OR item_name LIKE ?
-    """, (search_term, f"%{search_term}%"))
-    result= cur.fetchone()      
-    conn.close()
+    result = db_ops.search_item(search_term)
     return result
 
 def search_items(searchterm: str):
     """Search function for streamlit-searchbox"""
-    if not searchterm:
-        return []
-    
-    conn = sqlite3.connect('billing_app.db')
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT item_name FROM itemadd 
-        WHERE item_name LIKE ? 
-        ORDER BY item_name 
-        LIMIT 20
-    ''', (f'%{searchterm}%',))
-    
-    results = [row[0] for row in cursor.fetchall()]
-    conn.close()
-    
-    return results
-
+    return db_ops.search_items(searchterm)
 
 def get_all_items():
     """Get all items from database"""
-    conn = sqlite3.connect('billing_app.db')
-    df = pd.read_sql_query("SELECT * FROM itemadd", conn)
-    conn.close()
-    return df
+    items = db_ops.get_all_items()
+    if items:
+        return pd.DataFrame(items)
+    return pd.DataFrame()
 
 def save_bill(bill_data, cart_items):
     """Save bill to database"""
-    conn = sqlite3.connect('billing_app.db')
-    cur = conn.cursor()
+    # Prepare bill document
+    bill_doc = {
+        'date': bill_data[0],
+        'time': bill_data[1],
+        'bill_no': bill_data[2],
+        'amount': bill_data[3],
+        'cust_name': bill_data[4],
+        'cust_mobile': bill_data[5],
+        'payment_mode': bill_data[6],
+        'cashier': bill_data[7]
+    }
     
-    # Save main bill
-    cur.execute("""
-        INSERT INTO billdata (date, time, bill_no, amount, cust_name, cust_mobile, payment_mode, cashier)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, bill_data)
-    
-    #SOH Update
-    for x in cart_items:
-        global sohup
-        sohup=[]
-        sohin=(x[3])
-        cur.execute("SELECT * FROM itemadd WHERE item_code=("+str(x[3])+")")
-        sohup=cur.fetchone()
-        data=(sohup[6]-x[5],sohup[0])
-        sohupdate=("""UPDATE itemadd SET soh=? WHERE item_code=?""")
-        cur.execute(sohupdate,data)
-        conn.commit()
-        print("SOH Update")
-    # Save sale details
+    # Convert cart items to sale details documents
+    sale_details = []
     for item in cart_items:
-        #print(item)
-        cur.execute("""
-            INSERT INTO saledetails 
-            (date, time, bill_no, item_code, item_name, qty, rate, gstin, gst_amount, 
-             discount, dis_amount, gross_amount, net_amount, soh,cost,catagory,sub_catagory,brand,expiry_date,store_code,store_name,vendor_name,vendor_gst)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,?,?,?,?,?,?,?)
-        """, item)     
-
-
+        sale_detail = {
+            'date': bill_doc['date'],
+            'time': bill_doc['time'],
+            'bill_no': bill_doc['bill_no'],
+            'item_code': item[3],
+            'item_name': item[4],
+            'qty': item[5],
+            'rate': item[6],
+            'gstin': item[7],
+            'gst_amount': item[8],
+            'discount': item[9],
+            'dis_amount': item[10],
+            'gross_amount': item[11],
+            'net_amount': item[12],
+            'soh': item[13],
+            'cost': item[14],
+            'catagory': item[15],
+            'sub_catagory': item[16],
+            'brand': item[17],
+            'expiry_date': item[18],
+            'store_code': item[19],
+            'store_name': item[20],
+            'vendor_name': item[21],
+            'vendor_gst': item[22]
+        }
+        sale_details.append(sale_detail)
     
-    conn.commit()
-    conn.close()
+    # Save to MongoDB
+    db_ops.save_bill(bill_doc, sale_details)
+    
+    # Update SOH (Stock on Hand)
+    for item in cart_items:
+        item_code = item[3]
+        qty_sold = item[5]
+        
+        # Get current item
+        current_item = db_ops.search_item(str(item_code))
+        if current_item:
+            new_soh = current_item.get('soh', 0) - qty_sold
+            db_ops.update_item_soh(item_code, new_soh)
+            print(f"SOH Updated for item {item_code}: {new_soh}")
 
+def search_catagory_func(searchc: str):
+    """Search function for category"""
+    return db_ops.search_catagory(searchc)
+
+def search_subcatagory_func(searchs: str):
+    """Search function for sub-category"""
+    return db_ops.search_subcatagory(searchs)
+
+def search_brand_func(searchb: str):
+    """Search function for brand"""
+    return db_ops.search_brand(searchb)
+
+def search_vendor_func(searchv: str):
+    """Search function for vendor"""
+    return db_ops.search_vendor(searchv)
 
 def generate_pdf(bill: dict, return_bytes: bool = False, force_ascii: bool = False):
-    """Generate a professional, multi-page-capable PDF invoice. Returns bytes when `return_bytes=True`.
-
-    bill: dict with keys: bill_no, date, time, customer_name, customer_mobile, items, totals
-    """
+    """Generate a professional PDF invoice. Returns bytes when `return_bytes=True`."""
     bill_no = str(bill.get('bill_no', 'invoice'))
     pdf_path = None
     if not return_bytes:
@@ -294,7 +173,6 @@ def generate_pdf(bill: dict, return_bytes: bool = False, force_ascii: bool = Fal
         txt.append('Description\tQty\tRate\tAmount\n')
         for it in bill.get('items', []):
             txt.append(f"{it.get('item_name')}\t{it.get('qty')}\t{it.get('rate')}\t{it.get('amount')}\n")
-        # total quantity for text fallback
         try:
             total_qty_txt = sum(int(float(it.get('qty', 0) or 0)) for it in bill.get('items', []))
         except Exception:
@@ -305,11 +183,8 @@ def generate_pdf(bill: dict, return_bytes: bool = False, force_ascii: bool = Fal
         txt_str = ''.join(txt)
         if return_bytes:
             return txt_str.encode('utf-8')
-        if pdf_path is None:
-            os.makedirs('bills', exist_ok=True)
-            txt_path = os.path.join('bills', f"{bill_no}.txt")
-        else:
-            txt_path = os.path.join(os.path.dirname(pdf_path), f"{bill_no}.txt")
+        os.makedirs('bills', exist_ok=True)
+        txt_path = os.path.join('bills', f"{bill_no}.txt")
         with open(txt_path, 'w', encoding='utf-8') as f:
             f.write(txt_str)
         return txt_path
@@ -343,11 +218,9 @@ def generate_pdf(bill: dict, return_bytes: bool = False, force_ascii: bool = Fal
         except Exception:
             unicode_font = False
 
-    # If caller forced ASCII mode, disable unicode font usage
     if force_ascii:
         unicode_font = False
 
-    # Choose base font depending on availability
     base_font = 'DejaVu' if unicode_font else 'Helvetica'
 
     # Layout settings
@@ -361,7 +234,6 @@ def generate_pdf(bill: dict, return_bytes: bool = False, force_ascii: bool = Fal
 
     logo_path = 'logo.png'
 
-    # Try to import QR libraries (optional)
     try:
         import qrcode
         from PIL import Image
@@ -369,7 +241,6 @@ def generate_pdf(bill: dict, return_bytes: bool = False, force_ascii: bool = Fal
     except Exception:
         QR_AVAILABLE = False
 
-    # Helpers
     def header():
         pdf.set_fill_color(*primary)
         pdf.rect(0, 0, pdf.w, header_h, 'F')
@@ -381,11 +252,9 @@ def generate_pdf(bill: dict, return_bytes: bool = False, force_ascii: bool = Fal
         pdf.set_text_color(255, 255, 220)
         pdf.set_font(base_font, 'B', 22)
         pdf.set_xy(90, 30)
-        #pdf.cell(160, 20, 'Alam Megastore', ln=1)
         pdf.set_x(30)
         pdf.set_font(base_font, 'B', 12)
         pdf.cell(30, 90, 'Relling Bihibaray | Dist-Darjeeling | Mobile: 9832025468', ln=1)
-        # Invoice badge
         bw = 150
         bh = 44
         pdf.set_fill_color(255, 255, 255)
@@ -414,7 +283,6 @@ def generate_pdf(bill: dict, return_bytes: bool = False, force_ascii: bool = Fal
         pdf.set_text_color(0, 0, 0)
 
     def footer():
-        # page number
         page_no = pdf.page_no()
         pdf.set_xy(0, pdf.h - bottom_margin + 10)
         pdf.set_font(base_font, 'I', 8)
@@ -422,10 +290,8 @@ def generate_pdf(bill: dict, return_bytes: bool = False, force_ascii: bool = Fal
         pdf.cell(0, 10, f'Page {page_no}', align='C')
         pdf.set_text_color(0, 0, 0)
 
-    # Start content
     header()
     pdf.ln(10)
-    # Customer & meta
     pdf.set_font(base_font, 'B', 11)
     pdf.set_x(left_margin)
     pdf.cell(80, 70, 'Customer:', ln=0)
@@ -438,12 +304,11 @@ def generate_pdf(bill: dict, return_bytes: bool = False, force_ascii: bool = Fal
     pdf.cell(260, 2, f"{bill.get('date','')}      {bill.get('time','')}", ln=1)
     pdf.ln(6)
 
-    # Items table
     table_header()
     pdf.set_font(base_font, '', 10)
     fill = False
     items = bill.get('items', [])
-    # Compute GST total if item gst_amount provided
+    
     gst_total = 0.0
     for it in items:
         try:
@@ -451,7 +316,6 @@ def generate_pdf(bill: dict, return_bytes: bool = False, force_ascii: bool = Fal
         except Exception:
             pass
 
-    # Compute total quantity
     total_qty = 0
     for it in items:
         try:
@@ -460,7 +324,6 @@ def generate_pdf(bill: dict, return_bytes: bool = False, force_ascii: bool = Fal
             pass
 
     for it in items:
-        # Check page space
         if pdf.get_y() + row_h + bottom_margin > pdf.h:
             footer()
             pdf.add_page()
@@ -481,7 +344,7 @@ def generate_pdf(bill: dict, return_bytes: bool = False, force_ascii: bool = Fal
         pdf.cell(300, row_h, desc, border=0, fill=fill_flag)
         pdf.set_x(330)
         pdf.cell(60, row_h, str(it.get('qty', '')), border=0, align='C', fill=fill_flag)
-        # currency
+        
         def fmt(v):
             try:
                 val = float(v)
@@ -495,9 +358,7 @@ def generate_pdf(bill: dict, return_bytes: bool = False, force_ascii: bool = Fal
         pdf.cell(80, row_h, fmt(it.get('amount', 0)), border=2, align='R', ln=1, fill=fill_flag)
         fill = not fill
 
-    # Totals block
     t = bill.get('totals', {})
-    # ensure space
     if pdf.get_y() + 140 + bottom_margin > pdf.h:
         footer()
         pdf.add_page()
@@ -526,14 +387,10 @@ def generate_pdf(bill: dict, return_bytes: bool = False, force_ascii: bool = Fal
     pdf.set_x(right_x)
     pdf.cell(70, 18, 'GST Total:', border=0)
     pdf.cell(70, 18, fmt_total(gst_total), border=4, align='R', ln=1)
-    #pdf.set_x(right_x)
-    #pdf.cell(70, 18, 'Total Qty:', border=0)
-    #pdf.cell(70, 18, str(total_qty), border=0, align='R', ln=1)
     pdf.set_x(right_x)
     pdf.cell(70, 18, 'Discount:', border=0)
     pdf.cell(70, 18, fmt_total(t.get('discount', 0)), border=0, align='R', ln=1)
 
-    # Highlight total
     pdf.set_x(right_x)
     pdf.set_fill_color(*primary)
     pdf.set_text_color(255, 255, 255)
@@ -550,8 +407,7 @@ def generate_pdf(bill: dict, return_bytes: bool = False, force_ascii: bool = Fal
     pdf.cell(70, 18, 'Change:', border=0)
     pdf.cell(70, 18, fmt_total(t.get('change', 0)), border=0, align='R', ln=1)
     pdf.ln(12)
-    # Signature and bank details
-    # Insert QR code image (if available) to left of signature/bank details
+    
     qr_tmp_path = None
     try:
         if QR_AVAILABLE:
@@ -569,7 +425,6 @@ def generate_pdf(bill: dict, return_bytes: bool = False, force_ascii: bool = Fal
             qr_tmp_path = tmp.name
             tmp.close()
             img.save(qr_tmp_path)
-            # place QR image
             try:
                 pdf.image(qr_tmp_path, x=left_margin, y=pdf.get_y(), w=80)
             except Exception:
@@ -577,7 +432,6 @@ def generate_pdf(bill: dict, return_bytes: bool = False, force_ascii: bool = Fal
     except Exception:
         qr_tmp_path = None
 
-    # Signature boxes
     pdf.set_x(left_margin + 90)
     pdf.cell(240, 40, 'Received By: ______________________', ln=0)
     pdf.set_x(350)
@@ -587,24 +441,18 @@ def generate_pdf(bill: dict, return_bytes: bool = False, force_ascii: bool = Fal
     pdf.set_font(base_font, '', 9)
     pdf.multi_cell(0, 90, 'Bank Details: ABC Bank, IFSC: ABCD0123456, A/C: 1234567890', align='L')
 
-    # cleanup temporary QR file
     try:
         if qr_tmp_path and os.path.exists(qr_tmp_path):
             os.unlink(qr_tmp_path)
     except Exception:
         pass
 
-    # Footer on last page
     footer()
 
-    # Output
-    # Attempt to get PDF bytes. If fpdf fails with UnicodeEncodeError
-    # (it tries to encode pages as latin-1), retry in ASCII mode (replace ₹ with Rs.)
     try:
         s = pdf.output(dest='S')
     except UnicodeEncodeError:
         if not force_ascii:
-            # Retry generation forcing ASCII currency (no ₹)
             return generate_pdf(bill, return_bytes=return_bytes, force_ascii=True)
         raise
 
@@ -625,41 +473,6 @@ def generate_pdf(bill: dict, return_bytes: bool = False, force_ascii: bool = Fal
         return pdf_path
     except Exception:
         return pdf_bytes
-        pdf.set_font('Helvetica', '', 11)
-    pdf.set_x(totals_x)
-    pdf.cell(totals_w_label, 18, 'Tender:', border=0)
-    pdf.cell(totals_w_value, 18, (f"₹{float(t.get('tender',0)):.2f}" if unicode_font else f"Rs.{float(t.get('tender',0)):.2f}"), border=0, align='R', ln=1)
-
-    pdf.set_x(totals_x)
-    pdf.cell(totals_w_label, 18, 'Change:', border=0)
-    pdf.cell(totals_w_value, 18, (f"₹{float(t.get('change',0)):.2f}" if unicode_font else f"Rs.{float(t.get('change',0)):.2f}"), border=0, align='R', ln=1)
-
-    pdf.ln(12)
-    # Footer thank you
-    pdf.set_font(base_font, 'I', 10)
-    pdf.multi_cell(0, 12, 'Thank you for visiting Alam Megastore. Visit again!', align='C')
-
-    # Return PDF bytes (or write to disk if requested)
-    s = pdf.output(dest='S')
-    if isinstance(s, (bytes, bytearray)):
-        pdf_bytes = bytes(s)
-    else:
-        try:
-            pdf_bytes = s.encode('latin-1')
-        except Exception:
-            pdf_bytes = s.encode('utf-8', errors='replace')
-
-    if return_bytes:
-        return pdf_bytes
-
-    # Save file and return path
-    try:
-        with open(pdf_path, 'wb') as f:
-            f.write(pdf_bytes)
-        return pdf_path
-    except Exception:
-        # fallback: return bytes if saving failed
-        return pdf_bytes
 
 def logout():
     """Logout user"""
@@ -674,27 +487,15 @@ init_database()
 
 # Login Page
 def login_page():
-    # Center content
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
         st.markdown("<br><br>", unsafe_allow_html=True)
-        #st.markdown('<div class="login-container">', unsafe_allow_html=True)
-        #st.markdown('<div class="login-box">', unsafe_allow_html=True)
-        
-        # Logo/Icon
-        #st.markdown("""
-            #<div style="text-align: center; margin-bottom: 1rem;">
-                #<div style="font-size: 6rem;">🛒</div>
-            #</div>
-        #""", unsafe_allow_html=True)
         col1,col2,col3=st.columns([1,2,1])
         with col2:
             st.image('logo.png')
-        #st.markdown('<div class="login-header">Alam Megastore</div>', unsafe_allow_html=True)
         st.markdown('<div class="login-subheader">Billing Management System</div>', unsafe_allow_html=True)
         
-        # Login form
         with st.form("login_form") :
             username = st.text_input("👤 Username", placeholder="Enter your username")
             password = st.text_input("🔒 Password", type="password", placeholder="Enter your password")
@@ -715,25 +516,20 @@ def login_page():
                 else:
                     st.warning("⚠️ Please enter both username and password")
         
-        st.markdown('</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # Demo credentials info
         with st.expander("ℹ️ Demo Credentials"):
             st.markdown("""
-            NONE
+            **Username:** admin | **Password:** admin123
+            **Username:** cashier | **Password:** cashier123
+            **Username:** manager | **Password:** manager123
             """)
 
 # Main App (after login)
 def main_app():
-    # Header
     st.markdown('<div class="main-header">🛒 Alam Megastore - Billing Software</div>', unsafe_allow_html=True)
     
-    # Sidebar for navigation
     with st.sidebar:
         st.image('logo.png', width=190)
         
-        # User info
         st.markdown("---")
         st.success(f"👤 **User:** {st.session_state.username}")
         st.info(f"🎭 **Role:** {st.session_state.user_role.upper()}")
@@ -743,16 +539,15 @@ def main_app():
         
         st.markdown("---")
         
-        # Navigation based on role
         if st.session_state.user_role == "admin":
             page = st.radio("Navigation", 
-                            ["🏠 Billing", "📦 Inventory", "➕ Add New Items","📊 Reports", "🔍 Search Bills", "👥 User Management","👥 Vendor Management","🗄️ Database Backup" ],
+                            ["🏠 Billing", "📦 Inventory", "➕ Add New Items","📊 Reports", "🔍 Search Bills", "👥 User Management","👥 Vendor Management"],
                             label_visibility="collapsed")
         elif st.session_state.user_role == "manager":
             page = st.radio("Navigation", 
                             ["🏠 Billing", "📦 Inventory","➕ Add New Items","📊 Reports", "🔍 Search Bills","👥 Vendor Management"],
                             label_visibility="collapsed")
-        else:  # cashier
+        else:
             page = st.radio("Navigation", 
                             ["🏠 Billing", "🔍 Search Bills"],
                             label_visibility="collapsed")
@@ -762,7 +557,6 @@ def main_app():
         st.info(f"**Date:** {now_in_india().strftime('%d/%m/%Y')}")
         st.info(f"**Time:** {now_in_india().strftime('%H:%M:%S')}")
     
-    # Main content based on page selection
     if page == "🏠 Billing":
         billing_page()
     elif page == "📦 Inventory":
@@ -776,17 +570,13 @@ def main_app():
     elif page == "👥 User Management":
         user_management_page()
     elif page == "👥 Vendor Management":
-        vendor_add_page()    
-    elif page == "🗄️ Database Backup":
-        database_backup()    
+        vendor_add_page()
 
 def item_reset():
-    #st.session_state.quantity=1
     st.session_state.item_search=""
     st.session_state.selected_item=[]
 
 def billing_page():
-    # Customer Information
     col1, col2 = st.columns([2,1])
     
     with col1:
@@ -795,17 +585,12 @@ def billing_page():
         with cust_col1:
             customer_mobile = st.text_input("📱 Customer Mobile", value=st.session_state.customer_mobile, max_chars=10)
             if st.button("🔍 Search Customer"):
-                conn = sqlite3.connect('billing_app.db')
-                cur = conn.cursor()
-                cur.execute("SELECT cust_name, cust_mobile FROM billdata WHERE cust_mobile = ?", (customer_mobile,))
-                result = cur.fetchone()
-                conn.close()
+                result = db_ops.search_customer_by_mobile(customer_mobile)
                 if result:
-                    st.session_state.customer_name = result[0]
-                    st.session_state.customer_mobile = result[1]
-                    st.success(f"Customer found: {result[0]}")
+                    st.session_state.customer_name = result.get('cust_name', '')
+                    st.session_state.customer_mobile = result.get('cust_mobile', '')
+                    st.success(f"Customer found: {result.get('cust_name', '')}")
                 else:
-                    #st.warning("New customer")
                     @st.dialog("New Customer Entry")
                     def addcust():
                         st.text_input("",value=customer_mobile)
@@ -827,34 +612,34 @@ def billing_page():
     
     st.markdown("---")
     
-   
     st.subheader("🔍 Add Items to Cart")
     search_col1, search_col2 = st.columns([3, 1])
    
     with search_col1:        
         item_search = st.text_input("",placeholder="Type item code or EAN No")
-        # Item Search
         selected_item = st_searchbox(
-        search_items,
-        key="item_searchbox",
-        placeholder="Search items...with Names",
-        #label="🔍 Search for an item with Names",
-        clear_on_submit=False,
-        #clearable=False
+            search_items,
+            key="item_searchbox",
+            placeholder="Search items...with Names",
+            clear_on_submit=False,
         )
     
     with search_col2:
         quantity = st.number_input("Quantity", min_value=1, value=1)
     
     with search_col2:
-        #st.write("")
-        #st.write("")
         if st.button("➕ Add to Cart", width='stretch'):
-            if item_search:
-                i = search_item(item_search)
-                #item=(i[0],i[1],i[2],i[3],i[4],i[5],i[6])
+            if item_search or selected_item:
+                search_term = item_search or selected_item
+                i = search_item(search_term)
                 if i:
-                    item_code, item_name, _, rate, gstin, discount, soh,cost,catagory,sub_catagory,brand = (i[0],i[1],i[2],i[3],i[4],i[5],i[6],i[7],i[8],i[9],i[10])
+                    item_code = i.get('item_code')
+                    item_name = i.get('item_name')
+                    rate = i.get('rate')
+                    gstin = i.get('gstin')
+                    discount = i.get('discount')
+                    soh = i.get('soh')
+                    cost = i.get('cost')
                     
                     # Calculate amounts
                     total_rate = rate * quantity
@@ -862,8 +647,8 @@ def billing_page():
                     amount = total_rate - dis_amount
                     gst_amount = amount * gstin / 100
                     gross_amount = amount
-                    net_amount = amount-gst_amount
-                    costnew=(i[7]*quantity)
+                    net_amount = amount - gst_amount
+                    costnew = (cost * quantity)
                     
                     # Add to cart
                     cart_item = {
@@ -871,85 +656,36 @@ def billing_page():
                         'item_name': item_name,
                         'qty': quantity,
                         'rate': rate,
-                        'gstin':i[4],
-                        'gst_amount':gst_amount,
+                        'gstin': gstin,
+                        'gst_amount': gst_amount,
                         'discount': discount,
                         'dis_amount': dis_amount,
                         'gross_amount': gross_amount,
                         'amount': net_amount,
-                        'cost':costnew,
-                        'catagory':i[8],
-                        'sub_catagory':i[9],
-                        'brand':i[10],
-                        'expiry_date':i[11],
-                        'store_code':i[12],
-                        'store_name':i[13],
-                        'vendor_name':i[14],
-                        'vendor_gst':i[15]
+                        'cost': costnew,
+                        'catagory': i.get('catagory'),
+                        'sub_catagory': i.get('sub_catagory'),
+                        'brand': i.get('brand'),
+                        'expiry_date': i.get('expiry_date'),
+                        'store_code': i.get('store_code'),
+                        'store_name': i.get('store_name'),
+                        'vendor_name': i.get('vendor_name'),
+                        'vendor_gst': i.get('vendor_gst')
                     }
                     st.session_state.cart_items.append(cart_item)
                     st.success(f"✅ Added {item_name} to cart!") 
-                    
-                    
-                    #st.session_state.item_search=['']                                   
+                    item_reset()
                     st.rerun()
-                  
                 else:
                     st.error("❌ Item not found!")
     
-            elif selected_item:
-                i = search_item(selected_item)
-                #item=(i[0],i[1],i[2],i[3],i[4],i[5],i[6])
-                if i:
-                    item_code, item_name, _, rate, gstin, discount, soh,cost,catagory,sub_catagory,brand = (i[0],i[1],i[2],i[3],i[4],i[5],i[6],i[7],i[8],i[9],i[10])
-                    
-                    # Calculate amounts
-                    total_rate = rate * quantity
-                    dis_amount = total_rate * discount / 100
-                    amount = total_rate - dis_amount
-                    gst_amount = amount * gstin / 100
-                    gross_amount = amount
-                    net_amount = amount-gst_amount
-                    costnew=(i[7]*quantity)
-                    
-                    # Add to cart
-                    cart_item = {
-                        'item_code': item_code,
-                        'item_name': item_name,
-                        'qty': quantity,
-                        'rate': rate,
-                        'gstin':i[4],
-                        'gst_amount':gst_amount,
-                        'discount': discount,
-                        'dis_amount': dis_amount,
-                        'gross_amount': gross_amount,
-                        'amount': net_amount,
-                        'cost':costnew,
-                        'catagory':i[8],
-                        'sub_catagory':i[9],
-                        'brand':i[10],
-                        'expiry_date':i[11],
-                        'store_code':i[12],
-                        'store_name':i[13],
-                        'vendor_name':i[14],
-                        'vendor_gst':i[15]
-                    }
-                    st.session_state.cart_items.append(cart_item)
-                    st.success(f"✅ Added {item_name} to cart!") 
-                    #st.session_state.item_search == ['']  
-                    item_reset()                                 
-                    st.rerun()                    
-                else:
-                    st.error("❌ Item not found!")
     # Display Cart
     st.markdown("---")
     st.subheader("🛒 Shopping Cart")
     
     if st.session_state.cart_items:
-        # Create DataFrame for display
         cart_df = pd.DataFrame(st.session_state.cart_items)
         
-        # Display table
         st.dataframe(
             cart_df[['item_code', 'item_name', 'qty', 'rate', 'gst_amount','discount', 'amount']],
             width='stretch',
@@ -991,9 +727,6 @@ def billing_page():
         
         with btn_col2:
             tender_amount = st.number_input("💵 Enter Tender Amount", min_value=0.0, value=float(total_amount))
-            #st.subheader("💳 Payment Mode")
-            #payment_mode = st.selectbox("Select Mode", ["CASH", "CARD", "UPI", "GC CARD"])
-            #st.session_state.payment_mode = payment_mode
         
         with btn_col3:
             if st.button("💾 Save & Print Bill", type="primary", width='stretch'):
@@ -1004,10 +737,10 @@ def billing_page():
                     current_date = now_in_india().strftime('%d/%m/%Y')
                     current_time = now_in_india().strftime('%H:%M:%S')
                     bill_no = f"{st.session_state.invoice_no}"
-                    conn=sqlite3.connect('billing_app.db')
-                    cur=conn.cursor()
-                    cur.execute("INSERT INTO invoicedata (reg_no,cm_no,bill_no) VALUES(null,null,'"+(bill_no)+"')")
-                    conn.commit()
+                    
+                    # Insert invoice
+                    invoice_data = {'bill_no': bill_no}
+                    db_ops.insert_invoice(invoice_data)
                     
                     # Prepare bill data
                     bill_data = (
@@ -1031,7 +764,6 @@ def billing_page():
                     
                     # Save to database
                     save_bill(bill_data, sale_details)
-                    
                     
                     # Generate bill text
                     bill_text = f"""
@@ -1069,7 +801,6 @@ def billing_page():
                     
                     st.success("✅ Bill saved successfully!")
 
-                    # Prepare structured bill data and generate PDF (or fallback to text file if FPDF not available)
                     bill_struct = {
                         'bill_no': bill_no,
                         'date': current_date,
@@ -1094,14 +825,12 @@ def billing_page():
                         }
                     }
 
-                    # Generate PDF/text bytes in-memory and show preview + download button
                     file_bytes = generate_pdf(bill_struct, return_bytes=True)
 
                     @st.dialog('Bill Test')
                     def billprint():
                         st.code(bill_text, language=None)
                         try:
-                            # Detect whether bytes look like a PDF (starts with %PDF)
                             is_pdf = isinstance(file_bytes, (bytes, bytearray)) and file_bytes[:4] == b"%PDF"
                             file_label = f"{bill_no}.{'pdf' if is_pdf else 'txt'}"
                             mime = 'application/pdf' if is_pdf else 'text/plain'
@@ -1117,33 +846,20 @@ def billing_page():
                             st.rerun()
 
                     billprint()
+                    
                     # Reset for next bill
-                    conn = sqlite3.connect('billing_app.db')
-                    cur = conn.cursor()
-                    cur.execute("SELECT MAX(rowid),* FROM invoicedata")
-                    eg = cur.fetchmany()
-                    print(eg)
-                    for v in eg:    
-                        st.session_state.invoice_no=(v[6]+1)
+                    st.session_state.invoice_no = db_ops.get_max_invoice_no()
                     st.session_state.cart_items = []
-                    #st.session_state.invoice_no = bill_no
                     st.session_state.customer_name = ""
                     st.session_state.customer_mobile = ""
                     st.session_state.item_search = ""
                     st.session_state.payment_mode = "CASH"
-                    conn.close()
                     st.session_state.item_search=""
                     st.session_state.selected_item=[]
                     st.session_state.quantity=1
                     st.session_state.selected_item=[""]
                     
-
-                    
-
-                    
                     st.balloons()
-                    
-                   
                     
     else:
         st.info("🛒 Cart is empty. Add items to start billing.")
@@ -1157,45 +873,45 @@ def inventory_page():
         if itemsearch:
                 i = search_item(itemsearch)
                 if i:
-                    item_code, item_name, rate, gstin, discount, soh ,cost,expiry_date,vendorname,vendorgst= (i[0],i[1],i[3],i[4],i[5],i[6],i[7],i[8],i[11],i[12])
                     @st.dialog("Item Details")
                     def itemd():
-                        st.form("ITEM DETAILS")
-                        
                         col1,col2=st.columns(2)
                         with col1:
-                            itemc=st.text_input("Item Code",value=(i[0]))
-                            itemn=st.text_input("Item name",value=(i[1]))
-                            mrp=st.text_input("MRP",value=(i[3]))
-                            gstv=st.text_input("Gstin%",value=(i[4]))
-                            dis=st.text_input("Discount%",value=(i[5]))
-                            sohinhand=st.number_input("SOH",value=(i[6]))
-                            costp=st.number_input("COST",value=(i[7]))
+                            itemc=st.text_input("Item Code",value=i.get('item_code'))
+                            itemn=st.text_input("Item name",value=i.get('item_name'))
+                            mrp=st.text_input("MRP",value=str(i.get('rate')))
+                            gstv=st.text_input("Gstin%",value=str(i.get('gstin')))
+                            dis=st.text_input("Discount%",value=str(i.get('discount')))
+                            sohinhand=st.number_input("SOH",value=i.get('soh',0))
+                            costp=st.number_input("COST",value=i.get('cost',0))
                         with col2:
-                            cat=st.text_input("catagory",value=(i[8]))
-                            subc=st.text_input("Sub Catagory",value=(i[9]))
-                            brd=st.text_input("Brand",value=(i[10]))
-                            exd=st.text_input("Expiry Date",value=(i[11]))
-                            vdn=st.text_input("Vendor Name",value=(i[14]))
-                            vdg=st.text_input("Vendor GST",value=(i[15]))
-                            
+                            cat=st.text_input("catagory",value=i.get('catagory',''))
+                            subc=st.text_input("Sub Catagory",value=i.get('sub_catagory',''))
+                            brd=st.text_input("Brand",value=i.get('brand',''))
+                            exd=st.text_input("Expiry Date",value=i.get('expiry_date',''))
+                            vdn=st.text_input("Vendor Name",value=i.get('vendor_name',''))
+                            vdg=st.text_input("Vendor GST",value=i.get('vendor_gst',''))
 
                         sohin=st.number_input("SOH INPUT",value=0)
-                        def sohinword():
-                            conn=sqlite3.connect("billing_app.db")
-                            cur=conn.cursor()
-                            data=(sohin+sohinhand,(i[0]))
-                            cur.execute("""UPDATE itemadd SET item_name='"+str(itemn)+"',rate='"+str(mrp)+"',gstin='"+str(gstv)+"',discount='"+str(dis)+"',
-                                            cost='"+str(costp)+"',catagory='"+str(cat)+"',sub_catagory='"+str(subc)+"',brand='"+str(brd)+"',expiry_date='"+str(exd)+"',vendor_name='"+str(vdn)+"',vendor_gst='"+str(vdg)+"' WHERE item_code='"+str(itemc)+"'""")        
-                            conn.commit()
-                            query=("""UPDATE itemadd SET soh=? WHERE item_code=?""")
-                            cur.execute(query,data)
-                            conn.commit()
-                            print("SOH IN DONE")
                         if st.button("Click to Update Item Details"):
-                            sohinword()
+                            new_soh = sohin + sohinhand
+                            update_data = {
+                                'item_name': itemn,
+                                'rate': float(mrp),
+                                'gstin': float(gstv),
+                                'discount': float(dis),
+                                'soh': new_soh,
+                                'cost': int(costp),
+                                'catagory': cat,
+                                'sub_catagory': subc,
+                                'brand': brd,
+                                'expiry_date': exd,
+                                'vendor_name': vdn,
+                                'vendor_gst': vdg
+                            }
+                            db_ops.update_item(i['item_code'], update_data)
+                            st.success("Item updated successfully!")
                             st.rerun()
-
 
                     itemd()
                 else:
@@ -1203,14 +919,6 @@ def inventory_page():
                     def itemaddtab():
                         st.error("Item Not Found")
                         st.info("   Need to Add from \n \n➕ Add New Item Tab from SidebarMenu")
-                        
-                    # Add new item
-
-                    #with st.expander("➕ Add New Item Tab"):
-                            
-
-                    #with st.form("add_item_form"):
-                                                        
                     itemaddtab()
                     
     # Display all items
@@ -1233,92 +941,8 @@ def inventory_page():
         )
     else:
         st.info("No items in inventory")
-    
-    
+
 def add_items():
-    #================Functions For Item Add=======================================
-    def search_catagory(searchc: str):
-        """Search function for streamlit-searchbox"""
-        if not searchc:
-            return []
-        
-        conn = sqlite3.connect('billing_app.db')
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT catagory FROM catagory
-            WHERE catagory LIKE ? 
-            ORDER BY catagory 
-            LIMIT 20
-        ''', (f'%{searchc}%',))
-        
-        results = [row[0] for row in cursor.fetchall()]
-        conn.close()
-        
-        return results
-    def search_subcatagory(searchs: str):
-        """Search function for streamlit-searchbox"""
-        if not searchs:
-            return []
-        
-        conn = sqlite3.connect('billing_app.db')
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT sub_catagory FROM sub_catagory 
-            WHERE sub_catagory LIKE ? 
-            ORDER BY sub_catagory 
-            LIMIT 20
-        ''', (f'%{searchs}%',))
-        
-        results = [row[0] for row in cursor.fetchall()]
-        conn.close()
-        
-        return results
-    def search_brand(searchb: str):
-        """Search function for streamlit-searchbox"""
-        if not searchb:
-            return []
-        
-        conn = sqlite3.connect('billing_app.db')
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT brand FROM brand 
-            WHERE brand LIKE ? 
-            ORDER BY brand
-            LIMIT 20
-        ''', (f'%{searchb}%',))
-        
-        results = [row[0] for row in cursor.fetchall()]
-        conn.close()
-        
-        return results
-    def search_vendor(searchv: str):
-        """Search function for streamlit-searchbox"""
-        if not searchv:
-            return []
-        
-        conn = sqlite3.connect('billing_app.db')
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT vendor_name FROM vendor_details 
-            WHERE vendor_name LIKE ? 
-            ORDER BY vendor_name 
-            LIMIT 20
-        ''', (f'%{searchv}%',))
-        
-        results = [row[0] for row in cursor.fetchall()]
-        cursor.execute("SELECT vendor_gst FROM vendor_details WHERE vendor_name LIKE ? ORDER BY vendor_name LIMIT 1", (f'%{searchv}%',))
-        gstget= cursor.fetchall()
-        print(gstget)
-        st.session_state.vendorgst=gstget[0][0] if gstget else 0.0
-        
-        conn.close()
-        
-        return results
-    #========================================================================
     st.subheader("➕ Add New Items")
 
     col1, col2 = st.columns(2)
@@ -1330,87 +954,73 @@ def add_items():
         new_discount = st.number_input("Discount %", min_value=0.0, max_value=100.0, value=0.0)
         new_soh = st.number_input("Stock on Hand", min_value=0, value=0)
         cost = st.number_input("Purchase Cost", min_value=0.0, step=0.01)
-        catag =st_searchbox(search_catagory,clear_on_submit=False,label="Search Catagory",key="searchc")
+        catag = st_searchbox(search_catagory_func, clear_on_submit=False, label="Search Catagory", key="searchc")
     with col2:
-        scatag = st_searchbox(search_subcatagory,clear_on_submit=False,label="Search Sub-Catagory",key="searchs")
-        brand = st_searchbox(search_brand,clear_on_submit=False,label="Search Brand Name",key="searchb")
+        scatag = st_searchbox(search_subcatagory_func, clear_on_submit=False, label="Search Sub-Catagory", key="searchs")
+        brand = st_searchbox(search_brand_func, clear_on_submit=False, label="Search Brand Name", key="searchb")
         expiry = st.date_input("Select Expiry Date")
         storecode = st.number_input("Store Code", min_value=0, value=7001)
         storename = st.selectbox("Store Name", ("Alam Megastore Relling","Alam Megastore Siliguri"))
-        vendorname = st_searchbox(search_vendor,clear_on_submit=False,label="Search Vendor",key="searchv")
-        vendorgst=st.text_input("Vendor GSTNO",value=st.session_state.get('vendorgst',''))                                
+        vendorname = st_searchbox(search_vendor_func, clear_on_submit=False, label="Search Vendor", key="searchv")
+        vendorgst=st.text_input("Vendor GSTNO", value=st.session_state.get('vendorgst',''))                                
                                     
-                                
     if st.button("Add Item"):
-        conn = sqlite3.connect('billing_app.db')
-        cur = conn.cursor()
         try:
-            cur.execute("""
-                INSERT INTO itemadd (item_code, item_name, qty, rate, gstin, discount, soh,cost,catagory,sub_catagory,brand,expiry_date,store_code,store_name,vendor_name,vendor_gst)
-                VALUES (?, ?, 1, ?, ?, ?, ?,?,?,?,?,?,?,?,?,?)
-                """, (new_code, new_name, new_rate, new_gstin, new_discount, new_soh,cost,catag,scatag,brand,expiry,storecode,storename,vendorname,vendorgst))
-            conn.commit()
+            item_data = {
+                'item_code': int(new_code),
+                'item_name': new_name,
+                'qty': 1,
+                'rate': new_rate,
+                'gstin': new_gstin,
+                'discount': new_discount,
+                'soh': new_soh,
+                'cost': int(cost),
+                'catagory': catag,
+                'sub_catagory': scatag,
+                'brand': brand,
+                'expiry_date': str(expiry),
+                'store_code': storecode,
+                'store_name': storename,
+                'vendor_name': vendorname,
+                'vendor_gst': vendorgst
+            }
+            db_ops.insert_item(item_data)
             st.success("✅ Item added successfully!")
-                                        #st.rerun()
-        except sqlite3.IntegrityError:
-            st.error("❌ Item code already exists!")
-        finally:
-            conn.close()
+        except Exception as e:
+            st.error(f"❌ Error: {e}")
 
     st.subheader("Category, Sub-Category and Brand Update Below ") 
     cat_col1, cat_col2, cat_col3 = st.columns(3)
+    
     with cat_col1:
         new_catagory = st.text_input("New Catagory")
         if st.button("Add Catagory"):
-            conn = sqlite3.connect('billing_app.db')
-            cur = conn.cursor()
-            cur.execute("SELECT catagory FROM catagory WHERE catagory=?", (new_catagory,))   
-            result = cur.fetchone()
-            if result and result[0] == new_catagory:
-                st.error("❌ Catagory already exists!")
-                conn.close()
-            
-            else:
-                cur.execute("INSERT INTO catagory (catagory) VALUES (?)", (new_catagory,))
-                conn.commit()
+            try:
+                db_ops.insert_catagory(new_catagory)
                 st.success("✅ Catagory added successfully!")
-           
-                conn.close()    
+            except Exception as e:
+                st.error(f"❌ {e}")
+    
     with cat_col2:
         new_subcatagory = st.text_input("New Sub-Catagory")
         if st.button("Add Sub-Catagory"):
-            conn = sqlite3.connect('billing_app.db')
-            cur = conn.cursor()
-            cur.execute("SELECT sub_catagory FROM sub_catagory WHERE sub_catagory=?", (new_subcatagory,))   
-            result = cur.fetchone()
-            if result and result[0] == new_subcatagory:
-                st.error("❌ Sub-Catagory already exists!")
-                conn.close()
-            else:
-                cur.execute("INSERT INTO sub_catagory (sub_catagory) VALUES (?)", (new_subcatagory,))
-                conn.commit()
+            try:
+                db_ops.insert_subcatagory(new_subcatagory)
                 st.success("✅ Sub-Catagory added successfully!")
-            
-                conn.close()    
+            except Exception as e:
+                st.error(f"❌ {e}")
+    
     with cat_col3:
         new_brand = st.text_input("New Brand")
         if st.button("Add Brand"):
-            conn = sqlite3.connect('billing_app.db')
-            cur = conn.cursor()
-            cur.execute("SELECT brand FROM brand WHERE brand=?", (new_brand,))
-            result = cur.fetchone()
-            if result and result[0] == new_brand:
-                st.error("❌ Brand already exists!")
-                conn.close()
-            else:
-                cur.execute("INSERT OR IGNORE INTO brand (brand) VALUES (?)", (new_brand,))
-                conn.commit()
+            try:
+                db_ops.insert_brand(new_brand)
                 st.success("✅ Brand added successfully!")
-            
-                conn.close()
+            except Exception as e:
+                st.error(f"❌ {e}")
+
 def vendor_add_page():
     st.subheader("Vendor Add Dashboard")
-    st.write("This is the Vendor Add Dashboard.")
     col1,col2=st.columns(2)
     with col1:
         vendor_id= st.text_input("Vendor ID")
@@ -1424,28 +1034,36 @@ def vendor_add_page():
         ifsc_code= st.text_input("IFSC Code")
         branch= st.text_input("Branch")
     if st.button("Add Vendor"):
-        conn=sqlite3.connect("billing_app.db")
-        cur=conn.cursor()
-        cur.execute("INSERT INTO vendor_details (vendor_id,vendor_name,vendor_mobile,vendor_gst,vendor_address,bank_name,bank_ac_no,bank_ifsc,bank_branch) VALUES(?,?,?,?,?,?,?,?,?)",(vendor_id,vendor_name,vendor_mobile,vendor_gst,vendor_address,bank_name,account_no,ifsc_code,branch))
-        conn.commit()
-        conn.close()
-        st.success("Vendor Added Successfully!")
+        vendor_data = {
+            'vendor_id': vendor_id,
+            'vendor_name': vendor_name,
+            'vendor_mobile': vendor_mobile,
+            'vendor_gst': vendor_gst,
+            'vendor_address': vendor_address,
+            'bank_name': bank_name,
+            'bank_ac_no': account_no,
+            'bank_ifsc': ifsc_code,
+            'bank_branch': branch
+        }
+        try:
+            db_ops.insert_vendor(vendor_data)
+            st.success("✅ Vendor Added Successfully!")
+        except Exception as e:
+            st.error(f"❌ Error: {e}")
 
 def reports_page():
     st.subheader("📊 Sales Reports")
     
-    # Get sales data
     current_date = now_in_india().strftime('%d/%m/%Y')
-    conn = sqlite3.connect('billing_app.db')
-    sales_df = pd.read_sql_query("SELECT * FROM billdata ORDER BY id DESC LIMIT 50", conn)
-    sale_details=pd.read_sql_query("SELECT * FROM saledetails",conn)
-    daysale=pd.read_sql_query("SELECT * FROM saledetails WHERE date='"+current_date+"'",conn)
-    conn.close()    
+    sales_data = db_ops.get_all_bills()
+    sale_details = db_ops.get_all_sale_details()
+    daysale = db_ops.get_day_sales(current_date)
     
-    if not sales_df.empty:
-        # Summary metrics
-        #st.metric("Total Revenue", f"₹{sales_df['amount'].sum():.2f}")
-        current_date = now_in_india().strftime('%d/%m/%Y')
+    if sales_data:
+        sales_df = pd.DataFrame(sales_data)
+        sale_details_df = pd.DataFrame(sale_details)
+        daysale_df = pd.DataFrame(daysale)
+        
         co1,co2=st.columns(2)
         total_Revenue=sales_df['amount'].sum()
         total_day=sales_df[sales_df['date']== current_date]['amount'].sum()
@@ -1454,7 +1072,7 @@ def reports_page():
         with co2:
             st.markdown(f'<div class="total-rev">Today Sale = ₹{total_day:.2f}</div>', unsafe_allow_html=True)    
         st.markdown("---")
-        col1, col2, col3, col4,col5= st.columns(5)
+        col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
             st.metric("Total Bills", len(sales_df))        
         with col2:
@@ -1471,9 +1089,6 @@ def reports_page():
         
         st.markdown("---")
         if st.button("Show Sale Invoice Data"):
-            if st.button("Hide Sale Data"):
-                st.rerun()
-            # Display sales table
             st.dataframe(
                 sales_df[['bill_no', 'date', 'time', 'cust_name','cust_mobile', 'amount', 'payment_mode', 'cashier']],
                 width='stretch',
@@ -1485,32 +1100,14 @@ def reports_page():
                     'cust_name': 'Customer',
                     'cust_mobile':'Customer Mobile',
                     'amount': st.column_config.NumberColumn('Amount', format="₹ %.2f"),
-                    #'amount':'Amount',
                     'payment_mode': 'Payment',
                     'cashier': 'Cashier'
                 }
             )
         elif st.button("Show Todays Sale"):
-            if st.button("Hide Sale Data"):
-                st.rerun()
-            # Display sales table
-            st.dataframe(daysale,
-                
-                width='stretch',
-                hide_index=True,
-                
-            )
+            st.dataframe(daysale_df, width='stretch', hide_index=True)
         elif st.button("Show Sale Details All"):
-            if st.button("Hide Sale Data"):
-                st.rerun()
-            # Display sales table
-            st.dataframe(sale_details,
-                
-                width='stretch',
-                hide_index=True,
-                
-                
-            )    
+            st.dataframe(sale_details_df, width='stretch', hide_index=True)
     else:
         st.info("No sales data available")
 
@@ -1521,38 +1118,23 @@ def search_bills_page():
     
     if st.button("Search"):
         if search_bill:
-            conn = sqlite3.connect('billing_app.db')
+            bill = db_ops.search_bill(search_bill)
             
-            # Get bill header
-            bill_df = pd.read_sql_query(
-                "SELECT * FROM billdata WHERE bill_no = ?", 
-                conn, 
-                params=(search_bill,)
-            )
-            
-            if not bill_df.empty:
-                # Display bill info
-                bill_info = bill_df.iloc[0]
-                
+            if bill:
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.info(f"**Bill No:** {bill_info['bill_no']}")
-                    st.info(f"**Customer:** {bill_info['cust_name']}")
+                    st.info(f"**Bill No:** {bill.get('bill_no')}")
+                    st.info(f"**Customer:** {bill.get('cust_name')}")
                 with col2:
-                    st.info(f"**Date:** {bill_info['date']}")
-                    st.info(f"**Time:** {bill_info['time']}")
+                    st.info(f"**Date:** {bill.get('date')}")
+                    st.info(f"**Time:** {bill.get('time')}")
                 with col3:
-                    st.info(f"**Amount:** ₹{bill_info['amount']:.2f}")
-                    st.info(f"**Payment:** {bill_info['payment_mode']}")
+                    st.info(f"**Amount:** ₹{bill.get('amount', 0):.2f}")
+                    st.info(f"**Payment:** {bill.get('payment_mode')}")
                 
-                # Get bill items
-                items_df = pd.read_sql_query(
-                    "SELECT * FROM saledetails WHERE bill_no = ?", 
-                    conn, 
-                    params=(search_bill,)
-                )
-                
-                if not items_df.empty:
+                items = db_ops.get_bill_items(search_bill)
+                if items:
+                    items_df = pd.DataFrame(items)
                     st.markdown("### Items")
                     st.dataframe(
                         items_df[['item_code', 'item_name', 'qty', 'rate', 'discount', 'gross_amount']],
@@ -1561,156 +1143,68 @@ def search_bills_page():
                     )
             else:
                 st.warning("Bill not found!")
-            
-            conn.close()
 
 def user_management_page():
     st.subheader("👥 User Management")
     
-    # Display all users
-    conn = sqlite3.connect('billing_app.db')
-    users_df = pd.read_sql_query("SELECT id, username, role FROM user_data", conn)
-    conn.close()
-    
-    if not users_df.empty:
+    users = db_ops.get_all_users()
+    if users:
+        users_df = pd.DataFrame(users)
         st.dataframe(
-            users_df,
+            users_df[['username', 'role']] if 'username' in users_df.columns else users_df,
             width='stretch',
-            hide_index=True,
-            column_config={
-                'id': 'ID',
-                'username': 'Username',
-                'role': 'Role'
-            }
+            hide_index=True
         )
     
-    # Add new user
     with st.expander("➕ Add New User"):
         with st.form("add_user_form"):
             col1, col2 = st.columns(2)
             with col1:
                 new_username = st.text_input("Username")
                 new_password = st.text_input("Password", type="password")
-                has_password=hashlib.sha256(new_password.strip().encode()).hexdigest()
             with col2:
                 new_role = st.selectbox("Role", ["cashier", "manager", "admin"])
             
             if st.form_submit_button("Add User"):
                 if new_username and new_password:
-                    conn = sqlite3.connect('billing_app.db')
-                    cur = conn.cursor()
+                    hashed_password = hashlib.sha256(new_password.strip().encode()).hexdigest()
                     try:
-                        cur.execute("INSERT INTO user_data (username,password,role) VALUES ('"+str(new_username)+"','"+str(has_password)+"','"+str(new_role)+"')")
-                        st.success("User Added Successfully")
-                    except sqlite3.IntegrityError:
-                        #cur.execute("UPDATE user_data SET username='"+str(new_username)+"',password='"+str(has_password)+"',role='"+str(new_role)+"'")
-                        st.error("❌ USER Already Available")
-                    finally:
-                        conn.commit()
-                        conn.close() 
+                        db_ops.insert_user(new_username, hashed_password, new_role)
+                        st.success("✅ User Added Successfully")
+                    except Exception as e:
+                        st.error(f"❌ Error: {e}")
 
     with st.expander("➕ UPDATE AND DELETE USER"):
-        with st.form("update & ❌Delete user_form"):
+        with st.form("update_delete_user_form"):
             col1, col2 = st.columns(2)
             with col1:
-                new_username = st.text_input("Username")
-                new_password = st.text_input("Password", type="password")
-                has_password=hashlib.sha256(new_password.strip().encode()).hexdigest()
+                upd_username = st.text_input("Username")
+                upd_password = st.text_input("Password", type="password")
             with col2:
-                new_role = st.selectbox("Role", ["cashier", "manager", "admin"])                      
-            if st.form_submit_button("Update User"):
-                if new_username and new_password:
-                    conn = sqlite3.connect('billing_app.db')
-                    cur = conn.cursor()
-                    cur.execute("UPDATE user_data SET username='"+str(new_username)+"',password='"+str(has_password)+"',role='"+str(new_role)+"' WHERE username='"+str(new_username)+"'")
-                    st.success("User Updated Successfully")
-                    conn.commit()
-                    conn.close()
-            if st.form_submit_button("❌Delete User"):
-                if new_username:
-                    conn = sqlite3.connect('billing_app.db')
-                    cur = conn.cursor()
-                    cur.execute("DELETE from user_data WHERE username='"+str(new_username)+"'")
-                    st.error("User Deleted Successfully")
-                    conn.commit()
-                    conn.close()          
-
-def database_backup():
-    st.subheader("🗄️ Database Backup")
-    #===============
-    def backupdata(source_path,backup_path):
-        src_conn=sqlite3.connect(source_path)
-        bck_conn=sqlite3.connect(backup_path)
-        with bck_conn:
-            src_conn.backup(
-                bck_conn,
-                pages=0,
-                progress=progress_callback
-            )
-        print("Backup Success")   
-        bck_conn.close()
-        src_conn.close()
-    def progress_callback(status,remaining,total):
-        st.success(f"Copied {total - remaining} of {total} pages....")
-    if st.button("Backup DB"):
-        backupdata("billing_app.db","billing_app_backup.db") 
-        file_path="billing_app_backup.db" 
-        with open(file_path,"rb") as f:
-            st.download_button(
-                label="Download DB Backup",
-                data=f,
-                file_name="billing_app_bak.db",
-                )
-             
-
-    # Display all users
-    conn = sqlite3.connect('billing_app.db')
-    #cur=conn.cursor()
-    billd=pd.read_sql_query("SELECT * FROM billdata",conn)
-    inv=pd.read_sql_query("SELECT * FROM invoicedata",conn)
-    item=pd.read_sql_query("SELECT * FROM itemadd",conn)
-    saled=pd.read_sql_query("SELECT * FROM saledetails",conn)
-    usrd=pd.read_sql_query("SELECT * FROM user_data",conn)
-    if st.button("Dowload all Tables Data in CSV"):
-        billd.to_csv("billdata.csv",index=None)
-        inv.to_csv("invoicedata.csv",index=None)
-        item.to_csv("itemadd.csv",index=None)
-        saled.to_csv("saledetails.csv",index=None)
-        usrd.to_csv("user_data.csv",index=None)
-          
-    
-    st.subheader("Import Item Data From CSV file as example showing below")
-    conn=sqlite3.connect("billing_app.db") 
-    st.text("Sample Format for Making CSV file (Ensure all row should be their with proper Heading)")
-    sampledata=pd.read_sql_query("SELECT * FROM itemadd LIMIT 2",conn)
-    st.dataframe(sampledata,width="stretch",hide_index=True)
-    upload_csv=st.file_uploader("Choose CSV File to import")
-    
-    
-    #item=[]
-    if st.button("import Item Data",width=300):
-        if upload_csv==upload_csv:
-
-            df=pd.read_csv(upload_csv)
-            df.columns=df.columns.str.strip()
+                upd_role = st.selectbox("Role", ["cashier", "manager", "admin"])                      
             
-            #head=next(df)
-            data=[]
+            col_upd, col_del = st.columns(2)
+            with col_upd:
+                if st.form_submit_button("Update User"):
+                    if upd_username and upd_password:
+                        hashed_password = hashlib.sha256(upd_password.strip().encode()).hexdigest()
+                        try:
+                            db_ops.update_user(upd_username, hashed_password, upd_role)
+                            st.success("✅ User Updated Successfully")
+                        except Exception as e:
+                            st.error(f"❌ Error: {e}")
             
-            #data.append(x)
-            #print(x)
-            conn=sqlite3.connect("billing_app.db")
-            cur=conn.cursor()
-            df.to_sql("itemadd",conn, if_exists="replace",index=0)
-            conn.commit()
-            conn.close()
-            st.success("Data Imported Successfully")
-        else:
-            st.info("Please Upload the CSV File")    
-          
-                    
+            with col_del:
+                if st.form_submit_button("❌ Delete User"):
+                    if upd_username:
+                        try:
+                            db_ops.delete_user(upd_username)
+                            st.success("✅ User Deleted Successfully")
+                        except Exception as e:
+                            st.error(f"❌ Error: {e}")
+
 # Main execution
 if not st.session_state.logged_in:
     login_page()
 else:
-    main_app()                   
+    main_app()

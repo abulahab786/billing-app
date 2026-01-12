@@ -5,4 +5,6 @@ datetime
 qrcode
 Pillow
 fpdf
-
+pymongo
+python-dotenv
+requests
