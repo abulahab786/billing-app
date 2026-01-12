@@ -13,7 +13,7 @@ load_dotenv()
 
 # MongoDB connection string (update with your MongoDB URI)
 #MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-MONGO_URI = ("mongodb+srv://abulahabslm_db_admin:Passw0rd@alammegastore.pzlbxsw.mongodb.net/?appName=alammegastore")
+MONGO_URI =os.getenv("MONGO_URI","mongodb+srv://abulahabslm_db_admin:Passw0rd@alammegastore.pzlbxsw.mongodb.net/?appName=alammegastore")
 DB_NAME = "billing_app"
 
 def get_db():
