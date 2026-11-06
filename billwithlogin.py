@@ -1056,13 +1056,13 @@ def reports_page():
     
     current_date = now_in_india().strftime('%d/%m/%Y')
     sales_data = db_ops.get_all_bills()
-    sale_details = db_ops.get_all_sale_details()
-    daysale = db_ops.get_day_sales(current_date)
     
     if sales_data:
         sales_df = pd.DataFrame(sales_data)
-        sale_details_df = pd.DataFrame(sale_details)
-        daysale_df = pd.DataFrame(daysale)
+        for col in ['bill_no', 'date', 'time', 'cust_name', 'cust_mobile', 'amount', 'payment_mode', 'cashier']:
+            if col not in sales_df.columns:
+                sales_df[col] = None
+        sales_df['amount'] = pd.to_numeric(sales_df['amount'], errors='coerce').fillna(0.0)
         
         co1,co2=st.columns(2)
         total_Revenue=sales_df['amount'].sum()
@@ -1105,8 +1105,10 @@ def reports_page():
                 }
             )
         elif st.button("Show Todays Sale"):
+            daysale_df = pd.DataFrame(db_ops.get_day_sales(current_date))
             st.dataframe(daysale_df, width='stretch', hide_index=True)
         elif st.button("Show Sale Details All"):
+            sale_details_df = pd.DataFrame(db_ops.get_all_sale_details())
             st.dataframe(sale_details_df, width='stretch', hide_index=True)
     else:
         st.info("No sales data available")
